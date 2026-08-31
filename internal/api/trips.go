@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // TripPlan is a Wanderlog trip. Key is the short id used in trip URLs
@@ -147,9 +148,33 @@ func (c *Client) Sections(key string) ([]Section, error) {
 // PlaceWithNote is one entry in an add-places call. Place is the full Google
 // Places object as returned by GetPlaceDetails — the server keys off its
 // place_id, so a hand-built stub will not work.
+//
+// Text is a Quill rich-text delta, not a string. The server stores a bare
+// string verbatim rather than rejecting it, which produces a note the editor
+// did not author — use NoteDelta to build this field.
 type PlaceWithNote struct {
 	Place json.RawMessage `json:"place"`
-	Text  *string         `json:"text"`
+	Text  json.RawMessage `json:"text"`
+}
+
+// NoteDelta wraps plain text in the Quill delta shape Wanderlog stores notes
+// in: {"ops":[{"insert":"...\n"}]}. An empty note becomes a lone newline,
+// matching what the web client sends for a place with no note.
+func NoteDelta(text string) json.RawMessage {
+	if text == "" {
+		text = "\n"
+	} else if !strings.HasSuffix(text, "\n") {
+		// Quill documents always end in a newline.
+		text += "\n"
+	}
+	delta := map[string]any{
+		"ops": []map[string]any{{"insert": text}},
+	}
+	out, err := json.Marshal(delta)
+	if err != nil {
+		return json.RawMessage(`{"ops":[{"insert":"\n"}]}`)
+	}
+	return out
 }
 
 type addPlacesBody struct {

@@ -196,11 +196,7 @@ var tripAddPlace = wrap(func(args []string) error {
 		return err
 	}
 
-	var text *string
-	if *note != "" {
-		text = note
-	}
-	entry := api.PlaceWithNote{Place: raw, Text: text}
+	entry := api.PlaceWithNote{Place: raw, Text: api.NoteDelta(*note)}
 
 	if _, err := c.AddPlaces(key, *section, []api.PlaceWithNote{entry}, *dup); err != nil {
 		return err

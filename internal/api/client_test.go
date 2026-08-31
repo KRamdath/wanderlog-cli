@@ -141,10 +141,9 @@ func TestAddPlacesBodyShape(t *testing.T) {
 	c := New("sess")
 	c.BaseURL = srv.URL
 
-	note := "try the roof"
 	_, err := c.AddPlaces("KEY", "SEC", []PlaceWithNote{{
 		Place: json.RawMessage(`{"place_id":"ChIJabc","name":"Eiffel Tower"}`),
-		Text:  &note,
+		Text:  NoteDelta("try the roof"),
 	}}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -159,8 +158,18 @@ func TestAddPlacesBodyShape(t *testing.T) {
 	if !ok || place["place_id"] != "ChIJabc" {
 		t.Errorf("place = %v, want the full Google place object", entry["place"])
 	}
-	if entry["text"] != "try the roof" {
-		t.Errorf("text = %v", entry["text"])
+	// Notes are Quill deltas; a bare string is stored verbatim by the server
+	// and produces a note the editor did not author.
+	delta, ok := entry["text"].(map[string]any)
+	if !ok {
+		t.Fatalf("text = %v, want a Quill delta object", entry["text"])
+	}
+	ops, ok := delta["ops"].([]any)
+	if !ok || len(ops) != 1 {
+		t.Fatalf("ops = %v", delta["ops"])
+	}
+	if insert := ops[0].(map[string]any)["insert"]; insert != "try the roof\n" {
+		t.Errorf("insert = %q, want %q", insert, "try the roof\n")
 	}
 	if got["addDuplicates"] != false {
 		t.Errorf("addDuplicates = %v", got["addDuplicates"])
@@ -274,5 +283,20 @@ func TestGetTripReturnsTopLevelBody(t *testing.T) {
 	}
 	if _, ok := body["success"]; ok {
 		t.Errorf("success should have been stripped")
+	}
+}
+
+func TestNoteDelta(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"go at sunrise", `{"ops":[{"insert":"go at sunrise\n"}]}`},
+		// Quill documents always end in a newline; don't double it.
+		{"already ends\n", `{"ops":[{"insert":"already ends\n"}]}`},
+		// An empty note matches what the client sends for "no note".
+		{"", `{"ops":[{"insert":"\n"}]}`},
+	}
+	for _, tc := range tests {
+		if got := string(NoteDelta(tc.in)); got != tc.want {
+			t.Errorf("NoteDelta(%q) = %s, want %s", tc.in, got, tc.want)
+		}
 	}
 }

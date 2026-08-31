@@ -190,10 +190,17 @@ POST /api/tripPlans/{key}/sections/{sectionId}/places
 → { "addedPlaceIds": [...] }
 ```
 
-Two things to get right:
+Three things to get right:
 
 - `place` must be the **whole object from `getPlaceDetails/v2`**, not a stub.
   The server keys off its `place_id` and reads other fields off it.
+- **`text` is a Quill rich-text delta, not a string.** The correct shape is
+  `{"ops":[{"insert":"your note
+"}]}`, and a place with no note is stored as
+  `{"ops":[{"insert":"
+"}]}`. The server accepts a bare string *without
+  complaint* and stores it verbatim, producing a note in a shape the editor
+  never authors — a silent-corruption trap, since the write appears to succeed.
 - Omitting `/{sectionId}` (i.e. posting to `.../sections/places`) lets the
   server choose; in testing it landed in the "Places to visit" section.
 - `DELETE` takes the Google `place_id` strings in `{placeIds: [...]}`.
