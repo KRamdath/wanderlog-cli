@@ -38,7 +38,7 @@ Destinations & places:
 
 Trips:
   wlog trip list                           List your trips
-  wlog trip create --title T [--start D] [--end D]
+  wlog trip create --geo NAME [--title T] [--start D] [--end D]
   wlog trip get <key>                      Fetch the raw trip document
   wlog trip delete <key>                   Delete a trip
   wlog trip sections <key>                 List a trip's days/sections

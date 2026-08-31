@@ -17,21 +17,58 @@ type TripPlan struct {
 	EndDate   string `json:"endDate,omitempty"`
 }
 
-// Section is one day (or unscheduled bucket) within a trip's itinerary.
+// Section is one day (or standing bucket such as "Places to visit") within a
+// trip's itinerary. Section ids are numeric, and the heading arrives as
+// displayHeading rather than a name/date pair.
 type Section struct {
-	ID    string          `json:"id"`
-	Name  string          `json:"name,omitempty"`
-	Date  string          `json:"date,omitempty"`
-	Type  string          `json:"type,omitempty"`
-	Block json.RawMessage `json:"blocks,omitempty"`
+	ID               int64  `json:"id"`
+	DisplayHeading   string `json:"displayHeading"`
+	Type             string `json:"type"`
+	PlaceMarkerColor string `json:"placeMarkerColor,omitempty"`
 }
 
+// Trip plan types, as used by the create endpoint.
+const (
+	TypePlan            = "plan"
+	TypeJournal         = "journal"
+	TypeRecommendations = "recommendations"
+	TypeStory           = "story"
+)
+
+// Privacy levels. Wanderlog defaults a new plan to "friends".
+const (
+	PrivacyPrivate = "private"
+	PrivacyFriends = "friends"
+	PrivacyPublic  = "public"
+)
+
+// CreateTripInput mirrors the payload the web client sends. The server rejects
+// partial bodies with a generic "unexpectedError", so every field is sent
+// explicitly — including the nulls — rather than omitted.
 type CreateTripInput struct {
-	Title     string `json:"title"`
-	StartDate string `json:"startDate,omitempty"`
-	EndDate   string `json:"endDate,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Language  string `json:"language,omitempty"`
+	GeoIDs                       []int   `json:"geoIds"`
+	InitialMapsPlaceIDs          []int   `json:"initialMapsPlaceIds"`
+	InitialSections              any     `json:"initialSections"`
+	InitialEmailID               any     `json:"initialEmailId"`
+	Type                         string  `json:"type"`
+	Privacy                      string  `json:"privacy"`
+	IsMapEmbed                   bool    `json:"isMapEmbed"`
+	Title                        *string `json:"title"`
+	StartDate                    *string `json:"startDate"`
+	EndDate                      *string `json:"endDate"`
+	AutogenerateItineraryOptions any     `json:"autogenerateItineraryOptions"`
+	Language                     string  `json:"language"`
+}
+
+// CreateTripResult is what the create endpoint returns. Note it carries id and
+// viewKey too, and createdSectionIds is empty even when day sections were
+// generated from the date range.
+type CreateTripResult struct {
+	ID                int64   `json:"id"`
+	Key               string  `json:"key"`
+	Title             string  `json:"title"`
+	ViewKey           string  `json:"viewKey"`
+	CreatedSectionIDs []int64 `json:"createdSectionIds"`
 }
 
 func (c *Client) ListTrips() ([]TripPlan, error) {
@@ -40,26 +77,60 @@ func (c *Client) ListTrips() ([]TripPlan, error) {
 	return out, err
 }
 
-func (c *Client) CreateTrip(in CreateTripInput) (*TripPlan, error) {
+// CreateTrip makes a new trip. At least one geo id is required — the server
+// refuses a destination-less trip with errType "noGeosForTripPlan".
+func (c *Client) CreateTrip(in CreateTripInput) (*CreateTripResult, error) {
 	if in.Language == "" {
 		in.Language = c.Language
 	}
 	if in.Type == "" {
-		in.Type = "tripPlan"
+		in.Type = TypePlan
 	}
-	out := &TripPlan{}
+	if in.Privacy == "" {
+		in.Privacy = PrivacyFriends
+	}
+	// Nil slices would marshal to null; the server expects arrays.
+	if in.GeoIDs == nil {
+		in.GeoIDs = []int{}
+	}
+	if in.InitialMapsPlaceIDs == nil {
+		in.InitialMapsPlaceIDs = []int{}
+	}
+	out := &CreateTripResult{}
 	err := c.JSON(Request{Method: http.MethodPost, Path: "/api/tripPlans", Body: in}, out)
 	return out, err
 }
 
+// ClientSchemaVersion is the itinerary schema version the web client sends.
+// Without it the server refuses the read with "incompatibleItineraryConversion"
+// ("your app is too old"). Bump this if that error reappears.
+const ClientSchemaVersion = "2"
+
 // GetTrip returns the raw trip document. The itinerary schema is large and
 // changes often, so it is passed through verbatim rather than modelled.
+//
+// Unlike most routes, this one puts its payload at the top level of the
+// envelope (tripPlan, resources, guideResources, settings) instead of nesting
+// it under "data", so the whole body is returned with "success" stripped.
 func (c *Client) GetTrip(key string) (json.RawMessage, error) {
-	resp, err := c.Do(Request{Path: "/api/tripPlans/" + url.PathEscape(key)})
+	resp, err := c.Do(Request{
+		Path:  "/api/tripPlans/" + url.PathEscape(key),
+		Query: url.Values{"clientSchemaVersion": {ClientSchemaVersion}},
+	})
 	if err != nil {
 		return nil, err
 	}
-	return resp.Data, nil
+
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(resp.Raw, &body); err != nil {
+		return resp.Raw, nil
+	}
+	delete(body, "success")
+	out, err := json.Marshal(body)
+	if err != nil {
+		return resp.Raw, nil
+	}
+	return out, nil
 }
 
 func (c *Client) DeleteTrip(key string) error {
@@ -90,8 +161,9 @@ type AddPlacesResult struct {
 	AddedPlaceIDs []json.RawMessage `json:"addedPlaceIds"`
 }
 
-// AddPlaces appends places to a trip. An empty sectionId adds them to the
-// trip's unscheduled list rather than to a specific day.
+// AddPlaces appends places to a trip. An empty sectionId lets the server pick
+// the destination, which in practice is the trip's "Places to visit" section
+// rather than a specific day.
 func (c *Client) AddPlaces(key, sectionID string, places []PlaceWithNote, addDuplicates bool) (*AddPlacesResult, error) {
 	out := &AddPlacesResult{}
 	err := c.JSON(Request{

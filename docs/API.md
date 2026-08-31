@@ -21,7 +21,11 @@ Every JSON route wraps its payload:
 Unknown routes return the SPA's HTML instead of a 404.
 
 Observed `errTypes`: `notLoggedIn`, `noEmailAccount`, `badMapsPlaceId`,
-`missingRequestParams`, `MissingRequestParamsOrToken`.
+`missingRequestParams`, `MissingRequestParamsOrToken`, `noGeosForTripPlan`,
+`googleMapsNotFound`, `incompatibleItineraryConversion`, `unexpectedError`.
+
+`unexpectedError` is the server's catch-all for a malformed body and names
+nothing useful — when you hit it, the payload is wrong, not the endpoint.
 
 ## Auth
 
@@ -95,8 +99,8 @@ All of these require auth.
 | Method | Path | Body / notes |
 |---|---|---|
 | GET | `/api/tripPlans` | List your trips |
-| POST | `/api/tripPlans` | `{title, startDate, endDate, type, language}` → `{key, ...}` |
-| GET | `/api/tripPlans/{key}` | Full trip document |
+| POST | `/api/tripPlans` | Create (full payload below) → `{id, key, title, viewKey, createdSectionIds}` |
+| GET | `/api/tripPlans/{key}` | Full trip document; **requires `clientSchemaVersion`** |
 | DELETE | `/api/tripPlans/{key}` | |
 | POST | `/api/tripPlans/{key}/restore` | Undo a delete |
 | GET | `/api/tripPlans/{key}/sections` | Days/sections; optional `datePreference` |
@@ -111,6 +115,69 @@ All of these require auth.
 | POST | `/api/tripPlans/{key}/export/v2` | |
 | GET | `/api/tripPlans/{key}/expensesAsCSV` | |
 | GET | `/api/tripPlans/home` | Dashboard feed |
+
+### Creating a trip
+
+Verified against the live API. **Every field must be present** — the server
+answers a partial body with a generic `unexpectedError` rather than naming the
+missing field, so this is not a case where omitting optionals is safe:
+
+```jsonc
+POST /api/tripPlans
+{
+  "geoIds": [2],                          // REQUIRED, non-empty
+  "initialMapsPlaceIds": [],
+  "initialSections": null,
+  "initialEmailId": null,
+  "type": "plan",                         // plan | journal | recommendations | story
+  "privacy": "friends",                   // private | friends | public
+  "isMapEmbed": false,
+  "title": null,                          // null → Wanderlog names it "Trip to <geo>"
+  "startDate": "2026-10-01",              // null for an undated trip
+  "endDate": "2026-10-04",
+  "autogenerateItineraryOptions": null,
+  "language": "en"
+}
+→ {"id":20952388,"key":"wgypedspwdjtcvmm","title":"...","viewKey":"hbsfuwzcvu",
+   "createdSectionIds":[]}
+```
+
+Gotchas confirmed by testing:
+
+- **`geoIds` must be non-empty.** A destination-less trip is refused with
+  `noGeosForTripPlan`. Resolve an id via `/api/geo/autocomplete/{q}`.
+- **`type` is `"plan"`**, not `"tripPlan"`.
+- `createdSectionIds` comes back empty *even when* day sections were generated
+  from the date range — read `/sections` instead of trusting it.
+- Passing a date range creates one `normal` section per day automatically.
+
+### Reading a trip
+
+`GET /api/tripPlans/{key}?clientSchemaVersion=2`
+
+Two things are unusual here:
+
+- Without `clientSchemaVersion` the server refuses with
+  `incompatibleItineraryConversion` — surfaced as "your app is too old".
+  The value is baked into the bundle (currently `2`).
+- The payload is at the **top level** of the envelope — `tripPlan`,
+  `resources`, `guideResources`, `settings` — *not* nested under `data`.
+
+The itinerary lives at `tripPlan.itinerary.sections[].blocks[]`. A place block
+has `type: "place"`, a `text` note, and `place` holding the full Google object.
+
+### Sections
+
+`GET /api/tripPlans/{key}/sections`
+
+```jsonc
+[{"id": 970390572, "displayHeading": "Notes", "type": "textOnly", "placeMarkerColor": "#000000"},
+ {"id": 677463973, "displayHeading": "Places to visit", "type": "normal", ...},
+ {"id": 391150968, "displayHeading": "Thursday, October 1st", "type": "normal", ...}]
+```
+
+Section **ids are numbers, not strings**, and the label is `displayHeading` —
+there is no `name` or `date` field. Types seen: `normal`, `textOnly`.
 
 ### Adding places
 
@@ -127,8 +194,10 @@ Two things to get right:
 
 - `place` must be the **whole object from `getPlaceDetails/v2`**, not a stub.
   The server keys off its `place_id` and reads other fields off it.
-- Omitting `/{sectionId}` (i.e. posting to `.../sections/places`) adds to the
-  trip's unscheduled list rather than to a particular day.
+- Omitting `/{sectionId}` (i.e. posting to `.../sections/places`) lets the
+  server choose; in testing it landed in the "Places to visit" section.
+- `DELETE` takes the Google `place_id` strings in `{placeIds: [...]}`.
+- A `place_id` Google no longer knows is rejected with `googleMapsNotFound`.
 
 ### `applyOps`
 

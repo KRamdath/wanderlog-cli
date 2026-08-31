@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"strings"
 
 	"github.com/KRamdath/wanderlog-cli/internal/api"
@@ -32,27 +33,58 @@ var tripList = wrap(func(args []string) error {
 
 var tripCreate = wrap(func(args []string) error {
 	fs := flag.NewFlagSet("trip create", flag.ContinueOnError)
-	title := fs.String("title", "", "trip title (required)")
+	geo := fs.String("geo", "", "destination name, e.g. \"kyoto\" (required unless --geo-id is given)")
+	geoID := fs.Int("geo-id", 0, "destination geo id from `wlog geo search`")
+	title := fs.String("title", "", "trip title; Wanderlog names it after the destination if omitted")
 	start := fs.String("start", "", "start date, YYYY-MM-DD")
 	end := fs.String("end", "", "end date, YYYY-MM-DD")
-	typ := fs.String("type", "tripPlan", "trip type")
+	typ := fs.String("type", api.TypePlan, "trip type: plan, journal, recommendations, story")
+	privacy := fs.String("privacy", api.PrivacyFriends, "privacy: private, friends, public")
 	if err := parseFlags(fs, args); err != nil {
 		return err
-	}
-	if *title == "" {
-		return errors.New("--title is required")
 	}
 
 	c, err := authedClient()
 	if err != nil {
 		return err
 	}
-	trip, err := c.CreateTrip(api.CreateTripInput{
-		Title:     *title,
-		StartDate: *start,
-		EndDate:   *end,
-		Type:      *typ,
-	})
+
+	// A trip must have a destination; the server rejects an empty geo list.
+	ids := []int{}
+	switch {
+	case *geoID != 0:
+		ids = append(ids, *geoID)
+	case *geo != "":
+		geos, gerr := c.SearchGeos(*geo)
+		if gerr != nil {
+			return gerr
+		}
+		if len(geos) == 0 {
+			return fmt.Errorf("no destination matched %q", *geo)
+		}
+		ids = append(ids, geos[0].ID)
+	default:
+		return errors.New("a destination is required: pass --geo NAME or --geo-id N")
+	}
+
+	in := api.CreateTripInput{
+		GeoIDs:  ids,
+		Type:    *typ,
+		Privacy: *privacy,
+	}
+	// These are distinct from empty strings: null tells the server to
+	// autogenerate a title and to leave the trip undated.
+	if *title != "" {
+		in.Title = title
+	}
+	if *start != "" {
+		in.StartDate = start
+	}
+	if *end != "" {
+		in.EndDate = end
+	}
+
+	trip, err := c.CreateTrip(in)
 	if err != nil {
 		return err
 	}
@@ -128,10 +160,9 @@ var tripSections = wrap(func(args []string) error {
 	out := make([]map[string]any, 0, len(sections))
 	for _, s := range sections {
 		out = append(out, map[string]any{
-			"id":   s.ID,
-			"name": s.Name,
-			"date": s.Date,
-			"type": s.Type,
+			"id":      s.ID,
+			"heading": s.DisplayHeading,
+			"type":    s.Type,
 		})
 	}
 	return emit(out)
@@ -140,7 +171,7 @@ var tripSections = wrap(func(args []string) error {
 var tripAddPlace = wrap(func(args []string) error {
 	fs := flag.NewFlagSet("trip add-place", flag.ContinueOnError)
 	place := fs.String("place", "", "Google place id, or a place name to search for (required)")
-	section := fs.String("section", "", "section/day id; omit to add to the unscheduled list")
+	section := fs.String("section", "", "section/day id from `wlog trip sections`; omit to add to \"Places to visit\"")
 	note := fs.String("note", "", "note to attach to the place")
 	geo := fs.String("geo", "", "destination name used to disambiguate a place name")
 	near := fs.String("near", "", "LAT,LNG used to disambiguate a place name")

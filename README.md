@@ -56,18 +56,21 @@ wlog auth status
 wlog geo search "kyoto"
 # → id 12345, "Kyoto, Japan", lat 35.0116, lng 135.7681
 
-# 2. Create the trip.
-wlog trip create --title "Kyoto in spring" --start 2026-04-01 --end 2026-04-05
+# 2. Create the trip. A destination is required — Wanderlog refuses a
+#    trip with no geo. Omit --title and it names itself "Trip to Kyoto".
+wlog trip create --geo kyoto --title "Kyoto in spring" --start 2026-04-01 --end 2026-04-05
 # → { "key": "abc123xyz", "url": "https://wanderlog.com/plan/abc123xyz" }
 
-# 3. List the days so you have section ids.
+# 3. List the days so you have section ids. A date range auto-creates
+#    one section per day, plus "Places to visit" and "Notes".
 wlog trip sections abc123xyz
+# → { "id": 391150968, "heading": "Thursday, October 1st", "type": "normal" }
 
 # 4. Add places to a specific day.
 wlog trip add-place abc123xyz --place "Fushimi Inari Taisha" --geo kyoto \
     --section <sectionId> --note "go at sunrise to beat the crowds"
 
-# Omit --section to drop a place in the unscheduled list.
+# Omit --section and it lands in "Places to visit".
 wlog trip add-place abc123xyz --place "Nishiki Market" --geo kyoto
 ```
 
@@ -93,7 +96,7 @@ wlog trip add-place abc123xyz --place ChIJ... --section <sectionId>
 | `place search <q>` | Find places (needs `--geo` or `--near`) |
 | `place get <placeId>` | Full place details |
 | `trip list` | List your trips |
-| `trip create` | Create a trip |
+| `trip create` | Create a trip (requires `--geo`) |
 | `trip get <key>` | Raw trip document |
 | `trip sections <key>` | List days/sections |
 | `trip add-place <key>` | Add a place |
@@ -148,8 +151,13 @@ go test ./...
 go build ./...
 ```
 
-Tests cover argument permutation, path normalisation, and the API client's
-envelope handling. They use `httptest` and never touch the network.
+Tests cover argument permutation, path normalisation, the API client's envelope
+handling, and the exact create/section payload shapes the server requires. They
+use `httptest` and never touch the network.
+
+Every command has been exercised against a real Wanderlog account: create,
+read, list, sections, add-place (by name and by place id, with and without a
+section), remove-place, and delete.
 
 ## Licence
 

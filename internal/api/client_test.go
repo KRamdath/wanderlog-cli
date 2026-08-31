@@ -167,12 +167,112 @@ func TestAddPlacesBodyShape(t *testing.T) {
 	}
 }
 
-// Omitting the section id targets the trip's unscheduled list.
+// Omitting the section id lets the server choose, which lands in "Places to visit".
 func TestPlacesPathWithoutSection(t *testing.T) {
 	if got := placesPath("K", ""); got != "/api/tripPlans/K/sections/places" {
 		t.Errorf("placesPath = %q", got)
 	}
 	if got := placesPath("K", "S"); got != "/api/tripPlans/K/sections/S/places" {
 		t.Errorf("placesPath = %q", got)
+	}
+}
+
+// The create endpoint answers a partial body with a generic "unexpectedError",
+// so every field must be present — nulls and empty arrays included.
+func TestCreateTripSendsCompletePayload(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":{"key":"abc","title":"T"}}`))
+	}))
+	defer srv.Close()
+
+	c := New("sess")
+	c.BaseURL = srv.URL
+
+	title := "Kyoto in spring"
+	if _, err := c.CreateTrip(CreateTripInput{GeoIDs: []int{2}, Title: &title}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, k := range []string{
+		"geoIds", "initialMapsPlaceIds", "initialSections", "initialEmailId",
+		"type", "privacy", "isMapEmbed", "title", "startDate", "endDate",
+		"autogenerateItineraryOptions", "language",
+	} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("payload is missing required key %q", k)
+		}
+	}
+
+	if got["type"] != TypePlan {
+		t.Errorf("type = %v, want %q", got["type"], TypePlan)
+	}
+	if got["privacy"] != PrivacyFriends {
+		t.Errorf("privacy = %v, want %q", got["privacy"], PrivacyFriends)
+	}
+	// An unset date must serialise as null, not "".
+	if got["startDate"] != nil {
+		t.Errorf("startDate = %v, want null", got["startDate"])
+	}
+	// Empty id lists must be arrays, not null.
+	if _, ok := got["initialMapsPlaceIds"].([]any); !ok {
+		t.Errorf("initialMapsPlaceIds = %v, want []", got["initialMapsPlaceIds"])
+	}
+}
+
+// Sections have numeric ids and carry displayHeading rather than name/date.
+func TestSectionsDecodeNumericIDs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":[
+		  {"id":970390572,"displayHeading":"Notes","type":"textOnly"},
+		  {"id":512522282,"displayHeading":"Thursday, October 1st","type":"normal"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New("sess")
+	c.BaseURL = srv.URL
+
+	secs, err := c.Sections("KEY")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(secs) != 2 {
+		t.Fatalf("got %d sections", len(secs))
+	}
+	if secs[1].ID != 512522282 || secs[1].DisplayHeading != "Thursday, October 1st" {
+		t.Errorf("section = %+v", secs[1])
+	}
+}
+
+// This route nests its payload at the top level, not under "data".
+func TestGetTripReturnsTopLevelBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("clientSchemaVersion") != ClientSchemaVersion {
+			t.Errorf("clientSchemaVersion = %q", r.URL.Query().Get("clientSchemaVersion"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"tripPlan":{"key":"abc"},"settings":{}}`))
+	}))
+	defer srv.Close()
+
+	c := New("sess")
+	c.BaseURL = srv.URL
+
+	raw, err := c.GetTrip("abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("result is not JSON: %v", err)
+	}
+	if _, ok := body["tripPlan"]; !ok {
+		t.Errorf("tripPlan missing from %v", body)
+	}
+	if _, ok := body["success"]; ok {
+		t.Errorf("success should have been stripped")
 	}
 }
