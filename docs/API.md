@@ -206,17 +206,41 @@ Three things to get right:
 - `DELETE` takes the Google `place_id` strings in `{placeIds: [...]}`.
 - A `place_id` Google no longer knows is rejected with `googleMapsNotFound`.
 
-### `applyOps`
+### Block times
 
-The itinerary is edited through an operational-transform log. The web client
-composes `ops` arrays and posts them to `applyOps` for fine-grained edits —
-reordering, timings, notes, arbitrary block mutations. The op schema is large,
-versioned (`clientSchemaVersion`, checked via
-`GET /api/tripPlans/{key}/updateRequired`), and changes often.
+Place blocks carry `startTime` and `endTime` as `"HH:MM"` strings (or null).
+These are the real schedule fields the itinerary timeline renders from — a time
+written into the note text does **not** position the item. The
+`sections/places` endpoint cannot set them; `applyOps` can.
 
-This CLI deliberately uses the higher-level `sections/places` endpoints, which
-are stable and cover trip building. `wlog api` is available if you need to
-drive `applyOps` directly.
+### `applyOps` — ShareDB json0
+
+`POST /api/tripPlans/{key}/applyOps` with `{"ops":[...]}`. No revision or
+version is required. The ops are **ShareDB json0**, with paths rooted at the
+trip document:
+
+```jsonc
+// set a field that is currently null
+{"p":["itinerary","sections",3,"blocks",0,"startTime"], "oi":"10:00"}
+
+// replace an existing value
+{"p":["itinerary","sections",3,"blocks",1,"startTime"], "od":"10:00", "oi":"11:30"}
+
+// move a block within its day
+{"p":["itinerary","sections",3,"blocks",2], "lm":0}
+```
+
+Verified against the live API. Notes:
+
+- Paths use **array indices**, not ids, so read the document first and never
+  reuse indices across a write.
+- Ops in one batch apply **sequentially** — a move shifts the indices every
+  later op sees. Compute a batch against a simulated array.
+- `addPlaces` appends to the end of a day. Ordering a timeline therefore means
+  writing times and then issuing moves; `wlog trip schedule-day` does both.
+
+The higher-level `sections/places` endpoints remain the right way to add and
+remove places; `applyOps` is only needed for field edits and ordering.
 
 ## Other namespaces seen in the bundles
 

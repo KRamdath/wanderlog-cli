@@ -74,6 +74,20 @@ wlog trip add-place abc123xyz --place "Fushimi Inari Taisha" --geo kyoto \
 wlog trip add-place abc123xyz --place "Nishiki Market" --geo kyoto
 ```
 
+Places are appended to the end of a day, and a day is a **timeline** — so give
+items times and then sort:
+
+```bash
+wlog trip set-time abc123xyz --section 391150968     --place ChIJ... --start 09:00 --end 10:30
+
+# Reorder every dated day by start time. --dry-run shows the result first.
+wlog trip schedule-day abc123xyz --dry-run
+wlog trip schedule-day abc123xyz
+```
+
+An item with no time is anchored to the timed item above it rather than swept
+to the end, so a sight and its untimed follow-ons stay together.
+
 `--place` accepts either a Google place id (`ChIJ...`) or a plain name. A name
 needs `--geo NAME` or `--near LAT,LNG` to disambiguate — "Eiffel Tower" matches
 Paris, Lahore, and Las Vegas.
@@ -101,6 +115,8 @@ wlog trip add-place abc123xyz --place ChIJ... --section <sectionId>
 | `trip sections <key>` | List days/sections |
 | `trip add-place <key>` | Add a place |
 | `trip remove-place <key>` | Remove places |
+| `trip set-time <key>` | Set a block's start/end time |
+| `trip schedule-day <key>` | Reorder a day chronologically |
 | `trip delete <key>` | Delete a trip (requires `--yes`) |
 | `api <METHOD> <path>` | Call any endpoint directly |
 

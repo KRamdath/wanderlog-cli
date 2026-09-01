@@ -44,6 +44,8 @@ Trips:
   wlog trip sections <key>                 List a trip's days/sections
   wlog trip add-place <key> --place P [--section S] [--note N]
   wlog trip remove-place <key> --place-id P [--section S]
+  wlog trip set-time <key> --section S --place P --start HH:MM [--end HH:MM]
+  wlog trip schedule-day <key> [--section S] [--dry-run]   Order a day by time
 
 Escape hatch:
   wlog api <METHOD> <path> [--data JSON]   Call any endpoint directly
@@ -90,6 +92,8 @@ func Run(args []string) int {
 			"sections":     tripSections,
 			"add-place":    tripAddPlace,
 			"remove-place": tripRemovePlace,
+			"set-time":     tripSetTime,
+			"schedule-day": tripScheduleDay,
 		}, "trip")
 	case "api":
 		return wrap(rawAPI)(args[1:])

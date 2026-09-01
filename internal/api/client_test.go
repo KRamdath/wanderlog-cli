@@ -300,3 +300,82 @@ func TestNoteDelta(t *testing.T) {
 		}
 	}
 }
+
+// Untimed blocks must travel with the timed block above them rather than being
+// swept to the end, so a "Clock + Old Town Square" pair stays together.
+func TestScheduleOpsGroupsUntimedBlocks(t *testing.T) {
+	blocks := []Block{
+		{BlockID: 1, StartTime: "12:00", Name: "Clock"},
+		{BlockID: 2, StartTime: "", Name: "Old Town Square"},
+		{BlockID: 3, StartTime: "10:00", Name: "Airport"},
+	}
+	ops := ScheduleOps(0, blocks)
+	if len(ops) == 0 {
+		t.Fatal("expected at least one move")
+	}
+	final := simulate([]int64{1, 2, 3}, ops)
+	want := []int64{3, 1, 2}
+	if !equal(final, want) {
+		t.Errorf("order = %v, want %v (Airport first, Clock+Square together)", final, want)
+	}
+}
+
+func TestScheduleOpsNoMovesWhenAlreadyOrdered(t *testing.T) {
+	blocks := []Block{
+		{BlockID: 1, StartTime: "09:00"},
+		{BlockID: 2, StartTime: ""},
+		{BlockID: 3, StartTime: "11:00"},
+	}
+	if ops := ScheduleOps(0, blocks); len(ops) != 0 {
+		t.Errorf("expected no moves, got %d", len(ops))
+	}
+}
+
+// Moves apply sequentially, so each one shifts the indices the next one sees.
+func simulate(ids []int64, ops []Op) []int64 {
+	cur := append([]int64{}, ids...)
+	for _, op := range ops {
+		if op.LM == nil {
+			continue
+		}
+		from := op.P[len(op.P)-1].(int)
+		to := *op.LM
+		moved := cur[from]
+		cur = append(cur[:from], cur[from+1:]...)
+		rest := append([]int64{moved}, cur[to:]...)
+		cur = append(cur[:to], rest...)
+	}
+	return cur
+}
+
+func equal(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// A write that changes nothing must not be emitted.
+func TestSetTimeOpsSkipsUnchangedFields(t *testing.T) {
+	b := Block{SectionIndex: 1, BlockIndex: 2, StartTime: "10:00", EndTime: ""}
+	if ops := SetTimeOps(b, "10:00", ""); len(ops) != 0 {
+		t.Errorf("expected no ops for an unchanged write, got %v", ops)
+	}
+	ops := SetTimeOps(b, "11:00", "12:00")
+	if len(ops) != 2 {
+		t.Fatalf("expected 2 ops, got %d", len(ops))
+	}
+	// Replacing an existing value carries od alongside oi.
+	if ops[0].OD != "10:00" || ops[0].OI != "11:00" {
+		t.Errorf("startTime op = %+v", ops[0])
+	}
+	// Setting a previously empty field carries oi only.
+	if ops[1].OD != nil || ops[1].OI != "12:00" {
+		t.Errorf("endTime op = %+v", ops[1])
+	}
+}
