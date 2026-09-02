@@ -27,6 +27,9 @@ var tripSetTime = wrap(func(args []string) error {
 	place := fs.String("place", "", "Google place id of the block (required)")
 	start := fs.String("start", "", "start time HH:MM; empty clears it")
 	end := fs.String("end", "", "end time HH:MM; empty clears it")
+	// A place can legitimately appear twice in one day — a hotel at bag-drop and
+	// again at check-in — so the occurrence has to be addressable.
+	nth := fs.Int("nth", 1, "which occurrence within the section, 1-based")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -58,22 +61,32 @@ var tripSetTime = wrap(func(args []string) error {
 		return fmt.Errorf("--section must be a numeric section id: %w", err)
 	}
 
+	var matches []api.Block
 	for _, b := range blocks {
 		if b.SectionID == sid && b.PlaceID == *place {
-			ops := api.SetTimeOps(b, *start, *end)
-			if len(ops) == 0 {
-				return emit(map[string]any{"changed": false, "place": b.Name})
-			}
-			if err := c.ApplyOps(key, ops); err != nil {
-				return err
-			}
-			return emit(map[string]any{
-				"changed": true, "place": b.Name,
-				"start": *start, "end": *end,
-			})
+			matches = append(matches, b)
 		}
 	}
-	return fmt.Errorf("no block with place id %s in section %s", *place, *section)
+	if len(matches) == 0 {
+		return fmt.Errorf("no block with place id %s in section %s", *place, *section)
+	}
+	if *nth < 1 || *nth > len(matches) {
+		return fmt.Errorf("--nth %d is out of range: %q appears %d time(s) in section %s",
+			*nth, matches[0].Name, len(matches), *section)
+	}
+	b := matches[*nth-1]
+
+	ops := api.SetTimeOps(b, *start, *end)
+	if len(ops) == 0 {
+		return emit(map[string]any{"changed": false, "place": b.Name})
+	}
+	if err := c.ApplyOps(key, ops); err != nil {
+		return err
+	}
+	return emit(map[string]any{
+		"changed": true, "place": b.Name, "nth": *nth,
+		"occurrences": len(matches), "start": *start, "end": *end,
+	})
 })
 
 // tripScheduleDay reorders a day so its blocks run chronologically.

@@ -126,3 +126,27 @@ func TestParseNear(t *testing.T) {
 		}
 	}
 }
+
+func TestValidTime(t *testing.T) {
+	for _, ok := range []string{"", "09:00", "9:00", "23:59", "00:00"} {
+		if err := validTime(ok); err != nil {
+			t.Errorf("validTime(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"24:00", "09:60", "9am", "0900", "9", "09:0"} {
+		if err := validTime(bad); err == nil {
+			t.Errorf("validTime(%q) should have failed", bad)
+		}
+	}
+}
+
+func TestIsDayHeading(t *testing.T) {
+	if !isDayHeading("Thursday, October 15th") {
+		t.Error("weekday heading should be a day section")
+	}
+	for _, h := range []string{"Places to visit", "Notes", "Views", "Food", ""} {
+		if isDayHeading(h) {
+			t.Errorf("%q should not be treated as a day section", h)
+		}
+	}
+}

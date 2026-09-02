@@ -80,6 +80,10 @@ items times and then sort:
 ```bash
 wlog trip set-time abc123xyz --section 391150968     --place ChIJ... --start 09:00 --end 10:30
 
+# A place can appear twice in a day (a hotel at bag-drop and at check-in).
+# --nth picks the occurrence; it defaults to the first.
+wlog trip set-time abc123xyz --section 391150968     --place ChIJhotel... --nth 2 --start 15:00 --end 15:20
+
 # Reorder every dated day by start time. --dry-run shows the result first.
 wlog trip schedule-day abc123xyz --dry-run
 wlog trip schedule-day abc123xyz
