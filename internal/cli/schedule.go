@@ -83,11 +83,43 @@ var tripSetTime = wrap(func(args []string) error {
 	if err := c.ApplyOps(key, ops); err != nil {
 		return err
 	}
+	if err := verifyTimes(c, key, b, *start, *end); err != nil {
+		return err
+	}
 	return emit(map[string]any{
 		"changed": true, "place": b.Name, "nth": *nth,
 		"occurrences": len(matches), "start": *start, "end": *end,
 	})
 })
+
+// verifyTimes re-reads the block and confirms the write landed on it.
+//
+// json0 op paths are array indices with no compare-and-swap, so an edit made
+// between the read and the write — someone in the Wanderlog app, or another
+// agent — shifts the indices and the op silently lands on a different block.
+// Checking afterwards turns that into a loud error instead of a wrong time on
+// the wrong place.
+func verifyTimes(c *api.Client, key string, want api.Block, start, end string) error {
+	blocks, err := c.Itinerary(key)
+	if err != nil {
+		// The write already happened; a failed read-back is not itself a failure.
+		return nil
+	}
+	for _, b := range blocks {
+		if b.BlockID != want.BlockID {
+			continue
+		}
+		if b.StartTime == start && b.EndTime == end {
+			return nil
+		}
+		return fmt.Errorf("write landed wrong: %q now reads %s-%s, expected %s-%s. "+
+			"The itinerary changed between the read and the write (someone editing in "+
+			"the app?). Re-run this command",
+			b.Name, b.StartTime, b.EndTime, start, end)
+	}
+	return fmt.Errorf("block for %q disappeared between the read and the write; "+
+		"re-read the trip before retrying", want.Name)
+}
 
 // tripScheduleDay reorders a day so its blocks run chronologically.
 var tripScheduleDay = wrap(func(args []string) error {
@@ -144,6 +176,11 @@ var tripScheduleDay = wrap(func(args []string) error {
 		if !*dry && len(ops) > 0 {
 			if err := c.ApplyOps(key, ops); err != nil {
 				return fmt.Errorf("reordering section %d: %w", sid, err)
+			}
+			// Moves are index-based, so confirm the day really came out sorted
+			// rather than assuming it did.
+			if err := verifyOrdered(c, key, sid); err != nil {
+				return err
 			}
 		}
 		results = append(results, map[string]any{
@@ -236,4 +273,25 @@ func isDayHeading(h string) bool {
 		}
 	}
 	return false
+}
+
+// verifyOrdered re-reads a section and confirms its timed blocks ascend.
+func verifyOrdered(c *api.Client, key string, sectionID int64) error {
+	blocks, err := c.Itinerary(key)
+	if err != nil {
+		return nil
+	}
+	prev, prevName := "", ""
+	for _, b := range blocks {
+		if b.SectionID != sectionID || b.StartTime == "" {
+			continue
+		}
+		if prev != "" && b.StartTime < prev {
+			return fmt.Errorf("section %d is still out of order after reordering: "+
+				"%q at %s follows %q at %s. The itinerary likely changed mid-write; re-run",
+				sectionID, b.Name, b.StartTime, prevName, prev)
+		}
+		prev, prevName = b.StartTime, b.Name
+	}
+	return nil
 }
