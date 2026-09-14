@@ -45,6 +45,7 @@ Trips:
   wlog trip add-place <key> --place P [--section S] [--note N]
   wlog trip remove-place <key> --place-id P [--section S]
   wlog trip set-time <key> --section S --place P --start HH:MM [--end HH:MM]
+  wlog trip set-note <key> --section S --place P --note TEXT
   wlog trip schedule-day <key> [--section S] [--dry-run]   Order a day by time
 
 Escape hatch:
@@ -93,6 +94,7 @@ func Run(args []string) int {
 			"add-place":    tripAddPlace,
 			"remove-place": tripRemovePlace,
 			"set-time":     tripSetTime,
+			"set-note":     tripSetNote,
 			"schedule-day": tripScheduleDay,
 		}, "trip")
 	case "api":

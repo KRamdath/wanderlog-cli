@@ -49,6 +49,7 @@ type Block struct {
 	PlaceID      string
 	StartTime    string
 	EndTime      string
+	Note         json.RawMessage
 }
 
 // Itinerary reads a trip and flattens its blocks, preserving the array indices
@@ -65,10 +66,11 @@ func (c *Client) Itinerary(key string) ([]Block, error) {
 				Sections []struct {
 					ID     int64 `json:"id"`
 					Blocks []struct {
-						ID        int64  `json:"id"`
-						Type      string `json:"type"`
-						StartTime string `json:"startTime"`
-						EndTime   string `json:"endTime"`
+						ID        int64           `json:"id"`
+						Type      string          `json:"type"`
+						StartTime string          `json:"startTime"`
+						EndTime   string          `json:"endTime"`
+						Text      json.RawMessage `json:"text"`
 						Place     struct {
 							Name    string `json:"name"`
 							PlaceID string `json:"place_id"`
@@ -95,6 +97,7 @@ func (c *Client) Itinerary(key string) ([]Block, error) {
 				PlaceID:      b.Place.PlaceID,
 				StartTime:    b.StartTime,
 				EndTime:      b.EndTime,
+				Note:         b.Text,
 			})
 		}
 	}
@@ -196,4 +199,16 @@ func ScheduleOps(sectionIndex int, blocks []Block) []Op {
 		cur = append(cur[:target], rest...)
 	}
 	return ops
+}
+
+// SetNoteOps replaces a block's note. Notes are Quill deltas, so the value is
+// built with NoteDelta rather than passed as a string.
+func SetNoteOps(b Block, text string) []Op {
+	p := []any{"itinerary", "sections", b.SectionIndex, "blocks", b.BlockIndex, "text"}
+	op := Op{P: p, OI: json.RawMessage(NoteDelta(text))}
+	// json0 replaces an existing key by carrying the old value alongside.
+	if len(b.Note) > 0 && string(b.Note) != "null" {
+		op.OD = b.Note
+	}
+	return []Op{op}
 }
