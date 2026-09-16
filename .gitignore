@@ -6,3 +6,5 @@ cookie.txt
 credentials.json
 trip*.json
 raw.json
+site/
+tools/docs/node_modules/
