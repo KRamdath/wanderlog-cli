@@ -78,11 +78,11 @@ Places are appended to the end of a day, and a day is a **timeline** — so give
 items times and then sort:
 
 ```bash
-wlog trip set-time abc123xyz --section 391150968     --place ChIJ... --start 09:00 --end 10:30
+wlog trip set-time abc123xyz --section 391150968 \n    --place ChIJ... --start 09:00 --end 10:30
 
 # A place can appear twice in a day (a hotel at bag-drop and at check-in).
 # --nth picks the occurrence; it defaults to the first.
-wlog trip set-time abc123xyz --section 391150968     --place ChIJhotel... --nth 2 --start 15:00 --end 15:20
+wlog trip set-time abc123xyz --section 391150968 \n    --place ChIJhotel... --nth 2 --start 15:00 --end 15:20
 
 # Reorder every dated day by start time. --dry-run shows the result first.
 wlog trip schedule-day abc123xyz --dry-run
@@ -120,6 +120,7 @@ wlog trip add-place abc123xyz --place ChIJ... --section <sectionId>
 | `trip add-place <key>` | Add a place |
 | `trip remove-place <key>` | Remove places |
 | `trip set-time <key>` | Set a block's start/end time |
+| `trip set-note <key>` | Replace a block's note |
 | `trip schedule-day <key>` | Reorder a day chronologically |
 | `trip delete <key>` | Delete a trip (requires `--yes`) |
 | `api <METHOD> <path>` | Call any endpoint directly |
@@ -163,6 +164,20 @@ low-level `applyOps` channel used for fine-grained itinerary edits.
 
 **Destructive actions need confirmation.** `trip delete` refuses without
 `--yes`.
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the code is laid out, how a command reaches HTTP and back |
+| [docs/SCHEDULING.md](docs/SCHEDULING.md) | Itinerary editing: times, ordering, notes, and the json0 op engine |
+| [docs/EXTENDING.md](docs/EXTENDING.md) | Adding a command or endpoint, with a worked example |
+| [docs/API.md](docs/API.md) | The private HTTP API, endpoint by endpoint |
+| [docs/AUTH.md](docs/AUTH.md) | The auth scheme and how it was determined |
+
+Each has a plain explanation first and collapsed **Advanced** sections carrying
+the detail that matters once you are changing the code. Diagrams are mermaid and
+render inline on GitHub.
 
 ## Development
 
